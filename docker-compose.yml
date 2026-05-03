@@ -1,33 +1,14 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: exam_solver_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: exam_solver_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d exam_solver_db"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: exam_solver_backend
     restart: unless-stopped
-    ports:
-      - "8080:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
+    networks:
+      - app-network
 
-volumes:
-  postgres_data:
+networks:
+  app-network:
+    external: true
+    name: slm_v2_app-network

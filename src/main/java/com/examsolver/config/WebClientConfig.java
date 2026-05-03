@@ -10,20 +10,33 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Configuration
 public class WebClientConfig {
 
-    @Value("${claude.api.key}")
-    private String claudeApiKey;
+//    @Value("${claude.api.key}")
+//    private String claudeApiKey;
+//
+//    @Value("${claude.api.base-url:https://api.anthropic.com}")
+//    private String claudeBaseUrl;
+//
+//    @Bean
+//    public WebClient claudeWebClient() {
+//        return WebClient.builder()
+//                .baseUrl(claudeBaseUrl)
+//                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+//                .defaultHeader("x-api-key", claudeApiKey)
+//                .defaultHeader("anthropic-version", "2023-06-01")
+//                .codecs(c -> c.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
+//                .build();
+//    }
 
-    @Value("${claude.api.base-url:https://api.anthropic.com}")
-    private String claudeBaseUrl;
+
+    @Value("${gemini.api.key}")
+    private String geminiApiKey;
 
     @Bean
-    public WebClient claudeWebClient() {
+    public WebClient geminiWebClient() {
         return WebClient.builder()
-                .baseUrl(claudeBaseUrl)
+                .baseUrl("https://generativelanguage.googleapis.com/v1beta")
+                .defaultHeader("x-goog-api-key", geminiApiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-                .defaultHeader("x-api-key", claudeApiKey)
-                .defaultHeader("anthropic-version", "2023-06-01")
-                .codecs(c -> c.defaultCodecs().maxInMemorySize(10 * 1024 * 1024)) // 10MB
                 .build();
     }
 }
