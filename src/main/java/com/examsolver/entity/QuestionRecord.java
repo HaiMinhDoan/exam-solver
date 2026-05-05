@@ -20,7 +20,7 @@ public class QuestionRecord {
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "exam_session_id", nullable = false)
+    @JoinColumn(name = "exam_session_id")
     private ExamSession examSession;
 
     @Column(name = "question_id", nullable = false, length = 256)

@@ -77,7 +77,7 @@ COMMENT ON COLUMN exam_sessions.device_id    IS 'Machine ID của thiết bị c
 -- ============================================================
 CREATE TABLE question_records (
                                   id                  BIGSERIAL    PRIMARY KEY,
-                                  exam_session_id     BIGINT       NOT NULL REFERENCES exam_sessions (id) ON DELETE CASCADE,
+                                  exam_session_id     BIGINT       NULL REFERENCES exam_sessions (id) ON DELETE SET NULL ,
                                   question_id         VARCHAR(256) NOT NULL,
                                   question_number     VARCHAR(20),
                                   question_type       VARCHAR(20)  NOT NULL

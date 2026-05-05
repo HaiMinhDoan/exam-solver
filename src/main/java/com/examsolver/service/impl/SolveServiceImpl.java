@@ -35,15 +35,15 @@ public class SolveServiceImpl {
         long start = System.currentTimeMillis();
 
         // 1. Xác thực API key
-        ApiKey apiKey = validateApiKey(request.getApiKey());
-        Customer customer = apiKey.getCustomer();
+//        ApiKey apiKey = validateApiKey(request.getApiKey());
+//        Customer customer = apiKey.getCustomer();
 
         // 2. Kiểm tra cache (cùng questionId đã được giải thành công trước đó)
         Optional<QuestionRecord> cached = questionRecordRepository.findCachedAnswer(request.getQuestionId());
         if (cached.isPresent()) {
             log.info("Cache hit for question [{}]", request.getQuestionId());
             QuestionRecord cr = cached.get();
-            apiKeyRepository.incrementUsageCount(apiKey.getId(), LocalDateTime.now());
+//            apiKeyRepository.incrementUsageCount(apiKey.getId(), LocalDateTime.now());
             return SolveResponse.builder()
                     .success(true)
                     .message("Answer from cache")
@@ -54,17 +54,17 @@ public class SolveServiceImpl {
         }
 
         // 3. Lấy hoặc tạo ExamSession
-        ExamSession session = getOrCreateSession(customer, request);
+//        ExamSession session = getOrCreateSession(customer, request);
 
         // 4. Gọi AI giải bài
         SolveResponse aiResponse = aiSolverService.solveQuestion(request);
         long elapsed = System.currentTimeMillis() - start;
 
         // 5. Lưu kết quả vào DB
-        saveQuestionRecord(session, request, aiResponse, elapsed);
-
+//        saveQuestionRecord(session, request, aiResponse, elapsed);
+        saveQuestionRecord(null, request, aiResponse, elapsed);
         // 6. Tăng usage count cho API key
-        apiKeyRepository.incrementUsageCount(apiKey.getId(), LocalDateTime.now());
+//        apiKeyRepository.incrementUsageCount(apiKey.getId(), LocalDateTime.now());
 
         log.info("Question [{}] solved in {}ms, answer: [{}]",
                 request.getQuestionId(), elapsed, aiResponse.getAnswer());
@@ -104,7 +104,7 @@ public class SolveServiceImpl {
             String optionsJson = objectMapper.writeValueAsString(request.getQuestion().getOptions());
 
             QuestionRecord record = QuestionRecord.builder()
-                    .examSession(session)
+//                    .examSession(session)
                     .questionId(request.getQuestionId())
                     .questionNumber(request.getQuestion().getNumber())
                     .questionType(QuestionRecord.QuestionType.valueOf(
