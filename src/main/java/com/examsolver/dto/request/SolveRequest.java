@@ -34,12 +34,12 @@ public class SolveRequest {
     @JsonProperty("ai_answer")
     private String aiAnswer; // Luôn null từ client
 
-    /**
-     * API key của khách hàng - bắt buộc khi gọi /api/solve
-     */
-    @JsonProperty("api_key")
-    @NotBlank(message = "api_key is required")
-    private String apiKey;
+//    /**
+//     * API key của khách hàng - bắt buộc khi gọi /api/solve
+//     */
+//    @JsonProperty("api_key")
+//    @NotBlank(message = "api_key is required")
+//    private String apiKey;
 
     // ─── Nested DTOs ─────────────────────────────────────────────────────────
 
