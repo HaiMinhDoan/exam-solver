@@ -10,5 +10,4 @@ services:
 
 networks:
   app-network:
-    external: true
-    name: slm_v2_app-network
+    driver: bridge
