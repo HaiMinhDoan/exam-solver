@@ -27,15 +27,10 @@ public class WebClientConfig {
 //                .build();
 //    }
 
-
-    @Value("${gemini.api.key}")
-    private String geminiApiKey;
-
     @Bean
     public WebClient geminiWebClient() {
         return WebClient.builder()
-                .baseUrl("https://generativelanguage.googleapis.com/v1beta")
-                .defaultHeader("x-goog-api-key", geminiApiKey)
+                .baseUrl("https://generativelanguage.googleapis.com") // Bỏ /v1beta ở đây
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
     }

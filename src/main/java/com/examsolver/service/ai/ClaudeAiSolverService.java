@@ -2,13 +2,12 @@
 //
 //import com.examsolver.dto.request.SolveRequest;
 //import com.examsolver.dto.response.SolveResponse;
+//import com.examsolver.entity.PromptVersion;
 //import com.fasterxml.jackson.databind.JsonNode;
 //import com.fasterxml.jackson.databind.ObjectMapper;
 //import lombok.RequiredArgsConstructor;
 //import lombok.extern.slf4j.Slf4j;
 //import org.springframework.beans.factory.annotation.Value;
-//import org.springframework.http.HttpHeaders;
-//import org.springframework.http.MediaType;
 //import org.springframework.stereotype.Service;
 //import org.springframework.web.reactive.function.client.WebClient;
 //import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -16,14 +15,7 @@
 //import java.time.Duration;
 //import java.util.List;
 //import java.util.Map;
-//import java.util.stream.Collectors;
 //
-///**
-// * Claude AI implementation của AiSolverService.
-// *
-// * Sử dụng Anthropic Claude API để phân tích câu hỏi và trả về đáp án
-// * theo đúng định dạng response của hệ thống.
-// */
 //@Service
 //@Slf4j
 //@RequiredArgsConstructor
@@ -47,57 +39,70 @@
 //    }
 //
 //    @Override
-//    public SolveResponse solveQuestion(SolveRequest request) {
+//    public SolveResponse solveQuestion(SolveRequest request, PromptVersion promptVersion) {
 //        try {
-//            String prompt = buildPrompt(request);
-//            log.debug("Sending question [{}] type [{}] to Claude",
+//            String prompt = buildPrompt(request, promptVersion);
+//            log.debug("Calling Claude for question [{}] type [{}]",
 //                    request.getQuestionId(), request.getQuestion().getQuestionType());
 //
-//            String rawResponse = callClaudeApi(prompt, request.getQuestion().getScreenshotBase64());
-//            return parseClaudeResponse(rawResponse, request.getQuestionId());
+//            String raw = callClaudeApi(prompt, request.getQuestion().getScreenshotBase64());
+//            return parseClaudeResponse(raw, request.getQuestionId());
 //
 //        } catch (WebClientResponseException e) {
-//            log.error("Claude API HTTP error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
-//            return errorResponse(request.getQuestionId(), "AI service HTTP error: " + e.getStatusCode());
+//            log.error("Claude HTTP error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+//            return errorResponse(request.getQuestionId(), "AI HTTP error: " + e.getStatusCode());
 //        } catch (Exception e) {
-//            log.error("Error calling Claude API for question {}: {}", request.getQuestionId(), e.getMessage(), e);
-//            return errorResponse(request.getQuestionId(), "AI service error: " + e.getMessage());
+//            log.error("Claude error for [{}]: {}", request.getQuestionId(), e.getMessage(), e);
+//            return errorResponse(request.getQuestionId(), "AI error: " + e.getMessage());
 //        }
 //    }
 //
 //    // ─── Prompt Builder ──────────────────────────────────────────────────────
 //
+//    private String buildPrompt(SolveRequest request, PromptVersion promptVersion) {
+//        // Nếu có template từ DB, dùng template đó (thay thế placeholders)
+//        if (promptVersion != null && promptVersion.getPromptTemplate() != null
+//                && !promptVersion.getPromptTemplate().isBlank()) {
+//            return applyTemplate(promptVersion.getPromptTemplate(), request);
+//        }
+//        // Fallback: dùng default hardcoded prompt
+//        return buildDefaultPrompt(request);
+//    }
+//
 //    /**
-//     * Xây dựng prompt theo từng loại câu hỏi.
-//     * Prompt được thiết kế để Claude trả về JSON thuần túy.
+//     * Áp dụng prompt template từ DB — thay thế các placeholder:
+//     *   {question_text}, {options}, {question_type}, {subject_code},
+//     *   {question_number}, {question_id}, {answer_format}
 //     */
-//    private String buildPrompt(SolveRequest request) {
+//    private String applyTemplate(String template, SolveRequest request) {
 //        SolveRequest.QuestionData q = request.getQuestion();
-//        String questionType = q.getQuestionType();
+//        return template
+//                .replace("{question_text}",   q.getText())
+//                .replace("{options}",          buildOptionsText(q.getOptions()))
+//                .replace("{question_type}",    q.getQuestionType())
+//                .replace("{subject_code}",     request.getSession().getSubjectCode())
+//                .replace("{question_number}",  q.getNumber())
+//                .replace("{question_id}",      request.getQuestionId())
+//                .replace("{answer_format}",    buildAnswerFormatGuide(q.getQuestionType()));
+//    }
 //
-//        String optionsText = buildOptionsText(q.getOptions());
-//        String typeInstruction = buildTypeInstruction(questionType, q.getOptions());
-//
+//    private String buildDefaultPrompt(SolveRequest request) {
+//        SolveRequest.QuestionData q = request.getQuestion();
 //        return """
-//                Bạn là một AI hỗ trợ giải bài tập học thuật cho giáo viên.
-//                Hãy phân tích câu hỏi và trả lời CHÍNH XÁC theo định dạng JSON được yêu cầu.
+//                Bạn là AI hỗ trợ giáo viên kiểm tra và soạn đề thi.
+//                Phân tích câu hỏi và trả về JSON CHÍNH XÁC theo định dạng yêu cầu.
 //
-//                === THÔNG TIN CÂU HỎI ===
-//                Loại câu hỏi: %s
-//                Số thứ tự: %s
-//                Môn học: %s
+//                === CÂU HỎI ===
+//                Loại: %s | Môn: %s | Số: %s
 //
-//                Câu hỏi:
 //                %s
 //
 //                %s
 //
-//                === YÊU CẦU TRẢ LỜI ===
+//                === YÊU CẦU ===
 //                %s
 //
-//                === ĐỊNH DẠNG JSON BẮT BUỘC ===
-//                Chỉ trả về JSON, KHÔNG có bất kỳ text nào khác, KHÔNG có markdown, KHÔNG có giải thích bên ngoài JSON:
-//
+//                === ĐỊNH DẠNG TRẢ VỀ (JSON DUY NHẤT, KHÔNG CÓ TEXT KHÁC) ===
 //                {
 //                  "success": true,
 //                  "message": "Answer processed",
@@ -106,179 +111,113 @@
 //                  "auto_click": true
 //                }
 //
-//                Trong đó <ĐÁP ÁN> phải là:
-//                %s
+//                Quy tắc <ĐÁP ÁN>: %s
 //                """.formatted(
-//                questionType,
-//                q.getNumber(),
+//                q.getQuestionType(),
 //                request.getSession().getSubjectCode(),
+//                q.getNumber(),
 //                q.getText(),
-//                optionsText,
-//                typeInstruction,
+//                buildOptionsText(q.getOptions()),
+//                buildTypeInstruction(q.getQuestionType()),
 //                request.getQuestionId(),
-//                buildAnswerFormatGuide(questionType)
+//                buildAnswerFormatGuide(q.getQuestionType())
 //        );
 //    }
 //
 //    private String buildOptionsText(List<SolveRequest.OptionData> options) {
 //        if (options == null || options.isEmpty()) return "";
 //        StringBuilder sb = new StringBuilder("Các lựa chọn:\n");
-//        for (SolveRequest.OptionData opt : options) {
-//            sb.append("  ").append(opt.getLabel()).append(". ").append(opt.getText()).append("\n");
-//        }
+//        options.forEach(o -> sb.append("  ").append(o.getLabel()).append(". ").append(o.getText()).append("\n"));
 //        return sb.toString();
 //    }
 //
-//    private String buildTypeInstruction(String questionType, List<SolveRequest.OptionData> options) {
-//        return switch (questionType.toUpperCase()) {
-//            case "SINGLECHOICE" -> """
-//                    Hãy chọn MỘT đáp án đúng nhất trong các lựa chọn trên.
-//                    Phân tích từng lựa chọn và xác định đáp án chính xác nhất.
-//                    """;
-//            case "MULTIPLECHOICE" -> """
-//                    Hãy chọn TẤT CẢ đáp án đúng trong các lựa chọn trên.
-//                    Có thể có từ 2 đáp án trở lên là đúng.
-//                    """;
-//            case "TRUEFALSE" -> """
-//                    Đây là câu hỏi Đúng/Sai.
-//                    A = Đúng (True), B = Sai (False).
-//                    Hãy xác định nhận định trong câu hỏi là Đúng hay Sai.
-//                    """;
-//            case "ESSAY" -> """
-//                    Đây là câu hỏi tự luận.
-//                    Hãy viết câu trả lời đầy đủ, chính xác và súc tích bằng tiếng Việt.
-//                    """;
-//            default -> "Hãy phân tích và trả lời câu hỏi một cách chính xác.";
+//    private String buildTypeInstruction(String type) {
+//        return switch (type.toUpperCase()) {
+//            case "SINGLECHOICE"   -> "Chọn MỘT đáp án đúng nhất.";
+//            case "MULTIPLECHOICE" -> "Chọn TẤT CẢ đáp án đúng (có thể nhiều hơn một).";
+//            case "TRUEFALSE"      -> "A = Đúng, B = Sai. Xác định nhận định đúng hay sai.";
+//            case "ESSAY"          -> "Viết câu trả lời tự luận đầy đủ, súc tích bằng tiếng Việt.";
+//            default               -> "Trả lời câu hỏi một cách chính xác.";
 //        };
 //    }
 //
-//    private String buildAnswerFormatGuide(String questionType) {
-//        return switch (questionType.toUpperCase()) {
-//            case "SINGLECHOICE" -> "Một chữ cái duy nhất, ví dụ: \"A\" hoặc \"B\" hoặc \"C\" hoặc \"D\"";
-//            case "MULTIPLECHOICE" -> "Các chữ cái phân cách bằng dấu phẩy, ví dụ: \"A,C\" hoặc \"A,B,D\"";
-//            case "TRUEFALSE" -> "\"A\" nếu Đúng, \"B\" nếu Sai";
-//            case "ESSAY" -> "Nội dung câu trả lời đầy đủ bằng tiếng Việt";
-//            default -> "Đáp án phù hợp với loại câu hỏi";
+//    private String buildAnswerFormatGuide(String type) {
+//        return switch (type.toUpperCase()) {
+//            case "SINGLECHOICE"   -> "Một chữ cái: \"A\", \"B\", \"C\" hoặc \"D\"";
+//            case "MULTIPLECHOICE" -> "Các chữ cái phân cách bởi dấu phẩy: \"A,C\" hoặc \"A,B,D\"";
+//            case "TRUEFALSE"      -> "\"A\" nếu Đúng, \"B\" nếu Sai";
+//            case "ESSAY"          -> "Nội dung câu trả lời đầy đủ";
+//            default               -> "Đáp án phù hợp";
 //        };
 //    }
 //
-//    // ─── Claude API Call ─────────────────────────────────────────────────────
+//    // ─── API Call ────────────────────────────────────────────────────────────
 //
 //    private String callClaudeApi(String prompt, String screenshotBase64) {
-//        List<Map<String, Object>> content = buildMessageContent(prompt, screenshotBase64);
-//
-//        Map<String, Object> requestBody = Map.of(
+//        List<Map<String, Object>> content = buildContent(prompt, screenshotBase64);
+//        Map<String, Object> body = Map.of(
 //                "model", model,
 //                "max_tokens", maxTokens,
-//                "messages", List.of(
-//                        Map.of("role", "user", "content", content)
-//                )
+//                "messages", List.of(Map.of("role", "user", "content", content))
 //        );
 //
 //        return claudeWebClient.post()
 //                .uri("/v1/messages")
-//                .bodyValue(requestBody)
+//                .bodyValue(body)
 //                .retrieve()
 //                .bodyToMono(String.class)
 //                .timeout(Duration.ofSeconds(timeoutSeconds))
 //                .block();
 //    }
 //
-//    private List<Map<String, Object>> buildMessageContent(String prompt, String screenshotBase64) {
-//        if (screenshotBase64 != null && !screenshotBase64.isBlank()) {
-//            // Có ảnh - gửi multimodal (text + image)
-//            String base64Data = screenshotBase64.contains(",")
-//                    ? screenshotBase64.split(",")[1]
-//                    : screenshotBase64;
-//
+//    private List<Map<String, Object>> buildContent(String prompt, String screenshot) {
+//        if (screenshot != null && !screenshot.isBlank()) {
+//            String b64 = screenshot.contains(",") ? screenshot.split(",")[1] : screenshot;
 //            return List.of(
-//                    Map.of(
-//                            "type", "image",
-//                            "source", Map.of(
-//                                    "type", "base64",
-//                                    "media_type", "image/png",
-//                                    "data", base64Data
-//                            )
-//                    ),
+//                    Map.of("type", "image", "source", Map.of(
+//                            "type", "base64", "media_type", "image/png", "data", b64)),
 //                    Map.of("type", "text", "text", prompt)
 //            );
 //        }
-//        // Chỉ text
 //        return List.of(Map.of("type", "text", "text", prompt));
 //    }
 //
 //    // ─── Response Parser ─────────────────────────────────────────────────────
 //
-//    /**
-//     * Parse response từ Claude API thành SolveResponse.
-//     * Claude được prompt để trả về JSON thuần túy.
-//     */
-//    private SolveResponse parseClaudeResponse(String rawApiResponse, String questionId) {
+//    private SolveResponse parseClaudeResponse(String raw, String questionId) {
 //        try {
-//            JsonNode apiRoot = objectMapper.readTree(rawApiResponse);
+//            String text = objectMapper.readTree(raw)
+//                    .path("content").get(0).path("text").asText();
+//            log.debug("Claude text for [{}]: {}", questionId, text);
 //
-//            // Lấy text content từ Claude response
-//            String claudeText = apiRoot
-//                    .path("content")
-//                    .get(0)
-//                    .path("text")
-//                    .asText();
-//
-//            log.debug("Claude raw text for question {}: {}", questionId, claudeText);
-//
-//            // Claude được prompt trả về JSON - parse nó
-//            String cleanJson = extractJson(claudeText);
-//            JsonNode answerNode = objectMapper.readTree(cleanJson);
-//
+//            JsonNode node = objectMapper.readTree(extractJson(text));
 //            return SolveResponse.builder()
-//                    .success(answerNode.path("success").asBoolean(true))
-//                    .message(answerNode.path("message").asText("Answer processed"))
-//                    .questionId(answerNode.path("question_id").asText(questionId))
-//                    .answer(answerNode.path("answer").asText())
-//                    .autoClick(answerNode.path("auto_click").asBoolean(true))
+//                    .success(node.path("success").asBoolean(true))
+//                    .message(node.path("message").asText("Answer processed"))
+//                    .questionId(node.path("question_id").asText(questionId))
+//                    .answer(node.path("answer").asText())
+//                    .autoClick(node.path("auto_click").asBoolean(true))
 //                    .build();
-//
 //        } catch (Exception e) {
-//            log.error("Failed to parse Claude response for question {}: {}", questionId, e.getMessage());
+//            log.error("Parse error for [{}]: {}", questionId, e.getMessage());
 //            return errorResponse(questionId, "Failed to parse AI response");
 //        }
 //    }
 //
-//    /**
-//     * Trích xuất JSON từ text, xử lý trường hợp Claude vô tình wrap trong markdown.
-//     */
 //    private String extractJson(String text) {
-//        if (text == null) throw new IllegalArgumentException("Empty response from Claude");
-//
-//        String trimmed = text.trim();
-//
-//        // Loại bỏ markdown code block nếu có
-//        if (trimmed.startsWith("```json")) {
-//            trimmed = trimmed.substring(7);
-//            int end = trimmed.lastIndexOf("```");
-//            if (end > 0) trimmed = trimmed.substring(0, end);
-//        } else if (trimmed.startsWith("```")) {
-//            trimmed = trimmed.substring(3);
-//            int end = trimmed.lastIndexOf("```");
-//            if (end > 0) trimmed = trimmed.substring(0, end);
-//        }
-//
-//        // Tìm JSON object
-//        int start = trimmed.indexOf('{');
-//        int end = trimmed.lastIndexOf('}');
-//        if (start >= 0 && end > start) {
-//            return trimmed.substring(start, end + 1);
-//        }
-//
-//        return trimmed.trim();
+//        if (text == null) throw new IllegalArgumentException("Empty Claude response");
+//        String t = text.trim();
+//        if (t.startsWith("```json")) t = t.substring(7);
+//        else if (t.startsWith("```")) t = t.substring(3);
+//        if (t.endsWith("```")) t = t.substring(0, t.lastIndexOf("```"));
+//        int s = t.indexOf('{'), e = t.lastIndexOf('}');
+//        if (s >= 0 && e > s) return t.substring(s, e + 1);
+//        return t.trim();
 //    }
 //
 //    private SolveResponse errorResponse(String questionId, String message) {
 //        return SolveResponse.builder()
-//                .success(false)
-//                .message(message)
-//                .questionId(questionId)
-//                .autoClick(false)
-//                .build();
+//                .success(false).message(message)
+//                .questionId(questionId).autoClick(false).build();
 //    }
 //}

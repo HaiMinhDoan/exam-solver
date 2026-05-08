@@ -2,23 +2,21 @@ package com.examsolver.service.ai;
 
 import com.examsolver.dto.request.SolveRequest;
 import com.examsolver.dto.response.SolveResponse;
+import com.examsolver.entity.PromptVersion;
 
 /**
- * Interface định nghĩa contract cho AI Question Solver.
- * Có thể implement nhiều provider khác nhau (Claude, GPT, Gemini...).
+ * Interface AI solver — có thể swap provider (Claude, GPT, Gemini...).
  */
 public interface AiSolverService {
 
     /**
-     * Giải câu hỏi và trả về đáp án theo đúng định dạng response.
+     * Giải câu hỏi bằng AI với prompt version được chỉ định.
      *
-     * @param request payload câu hỏi từ client
-     * @return SolveResponse với đáp án đúng định dạng
+     * @param request     payload câu hỏi
+     * @param promptVersion version prompt đang active (null = dùng default template)
+     * @return SolveResponse đúng định dạng
      */
-    SolveResponse solveQuestion(SolveRequest request);
+    SolveResponse solveQuestion(SolveRequest request, PromptVersion promptVersion);
 
-    /**
-     * Tên provider AI (để logging / tracking)
-     */
     String getProviderName();
 }

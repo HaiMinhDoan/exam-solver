@@ -14,6 +14,5 @@ public interface ExamSessionRepository extends JpaRepository<ExamSession, Long> 
     Page<ExamSession> findByCustomerIdOrderByCreatedAtDesc(Long customerId, Pageable pageable);
 
     Optional<ExamSession> findByCustomerIdAndExamCodeAndSubjectCodeAndDeviceId(
-            Long customerId, String examCode, String subjectCode, String deviceId
-    );
+            Long customerId, String examCode, String subjectCode, String deviceId);
 }

@@ -2,6 +2,7 @@ package com.examsolver.service.ai;
 
 import com.examsolver.dto.request.SolveRequest;
 import com.examsolver.dto.response.SolveResponse;
+import com.examsolver.entity.PromptVersion;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -33,127 +34,108 @@ public class GeminiAiSolverService implements AiSolverService {
     @Value("${gemini.api.timeout:30}")
     private int timeoutSeconds;
 
+    @Value("${gemini.api.key}")
+    private String apiKey;
+
     @Override
     public String getProviderName() {
         return "Google Gemini AI";
     }
 
     @Override
-    public SolveResponse solveQuestion(SolveRequest request) {
+    public SolveResponse solveQuestion(SolveRequest request, PromptVersion promptVersion) {
         try {
-            String prompt = buildPrompt(request);
-            log.debug("Sending question [{}] to Gemini", request.getQuestionId());
+            // Logic build prompt linh hoạt (Template từ DB hoặc Default)
+            String prompt = buildPrompt(request, promptVersion);
+
+            log.debug("Calling Gemini for question [{}] type [{}]",
+                    request.getQuestionId(), request.getQuestion().getQuestionType());
 
             String rawResponse = callGeminiApi(prompt, request.getQuestion().getScreenshotBase64());
             return parseGeminiResponse(rawResponse, request.getQuestionId());
 
         } catch (WebClientResponseException e) {
-            log.error("Gemini API error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            return errorResponse(request.getQuestionId(), "AI service error: " + e.getStatusCode());
+            log.error("Gemini HTTP error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+            return errorResponse(request.getQuestionId(), "Gemini HTTP error: " + e.getStatusCode());
         } catch (Exception e) {
-            log.error("Error calling Gemini API: {}", e.getMessage());
-            return errorResponse(request.getQuestionId(), "AI service error: " + e.getMessage());
+            log.error("Gemini error for [{}]: {}", request.getQuestionId(), e.getMessage(), e);
+            return errorResponse(request.getQuestionId(), "Gemini error: " + e.getMessage());
         }
     }
 
-    private String callGeminiApi(String prompt, String screenshotBase64) {
-        List<Map<String, Object>> contentParts = new ArrayList<>();
+    // ─── API Call ────────────────────────────────────────────────────────────
 
+    private String callGeminiApi(String prompt, String screenshotBase64) {
+        List<Map<String, Object>> parts = new ArrayList<>();
+
+        // Thêm hình ảnh nếu có
         if (screenshotBase64 != null && !screenshotBase64.isBlank()) {
             String base64Data = screenshotBase64.contains(",") ? screenshotBase64.split(",")[1] : screenshotBase64;
-            contentParts.add(Map.of(
+            parts.add(Map.of(
                     "inline_data", Map.of(
                             "mime_type", "image/png",
                             "data", base64Data
                     )
             ));
         }
-        contentParts.add(Map.of("text", prompt));
 
-        Map<String, Object> requestBody = Map.of(
-                "contents", List.of(Map.of("parts", contentParts)),
+        // Thêm text prompt
+        parts.add(Map.of("text", prompt));
+
+        Map<String, Object> body = Map.of(
+                "contents", List.of(Map.of("parts", parts)),
                 "generationConfig", Map.of(
                         "maxOutputTokens", maxTokens,
-                        "responseMimeType", "application/json" // Gemini hỗ trợ ép kiểu JSON
+                        "responseMimeType", "application/json" // Gemini sẽ trả về JSON thuần, không kèm markdown
                 )
         );
 
         return geminiWebClient.post()
-                .uri(uriBuilder -> uriBuilder.path("/models/{model}:generateContent").build(model))
-                .bodyValue(requestBody)
+                .uri(uriBuilder -> uriBuilder
+                        .path("/v1beta/models/{model}:generateContent")
+                        .queryParam("key", apiKey)
+                        .build(model))
+                .bodyValue(body)
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .block();
     }
 
-    private SolveResponse parseGeminiResponse(String rawApiResponse, String questionId) {
-        try {
-            JsonNode apiRoot = objectMapper.readTree(rawApiResponse);
+    // ─── Prompt Builder (Tương thích với Claude logic) ────────────────────────
 
-            // Đường dẫn response của Gemini: candidates -> content -> parts -> text
-            String geminiText = apiRoot.path("candidates").get(0)
-                    .path("content").path("parts").get(0)
-                    .path("text").asText();
-
-            JsonNode answerNode = objectMapper.readTree(geminiText);
-
-            return SolveResponse.builder()
-                    .success(answerNode.path("success").asBoolean(true))
-                    .message(answerNode.path("message").asText("Answer processed"))
-                    .questionId(answerNode.path("question_id").asText(questionId))
-                    .answer(answerNode.path("answer").asText())
-                    .autoClick(answerNode.path("auto_click").asBoolean(true))
-                    .build();
-        } catch (Exception e) {
-            log.error("Parse error for question {}: {}", questionId, e.getMessage());
-            return errorResponse(questionId, "Failed to parse AI response");
+    private String buildPrompt(SolveRequest request, PromptVersion promptVersion) {
+        if (promptVersion != null && promptVersion.getPromptTemplate() != null
+                && !promptVersion.getPromptTemplate().isBlank()) {
+            return applyTemplate(promptVersion.getPromptTemplate(), request);
         }
+        return buildDefaultPrompt(request);
     }
 
-    // --- Các phương thức hỗ trợ buildPrompt, buildOptionsText, buildTypeInstruction giữ nguyên như cũ ---
-    // (Vì logic prompt không thay đổi, chỉ có cách gọi API thay đổi)
-
-    private SolveResponse errorResponse(String questionId, String message) {
-        return SolveResponse.builder()
-                .success(false)
-                .message(message)
-                .questionId(questionId)
-                .autoClick(false)
-                .build();
-    }
-
-    // Đảm bảo bạn copy các hàm private: buildPrompt, buildOptionsText, buildTypeInstruction, buildAnswerFormatGuide
-    // từ code cũ của bạn vào đây.
-
-
-    private String buildPrompt(SolveRequest request) {
+    private String applyTemplate(String template, SolveRequest request) {
         SolveRequest.QuestionData q = request.getQuestion();
-        String questionType = q.getQuestionType();
+        return template
+                .replace("{question_text}",   q.getText())
+                .replace("{options}",         buildOptionsText(q.getOptions()))
+                .replace("{question_type}",    q.getQuestionType())
+                .replace("{subject_code}",     request.getSession().getSubjectCode())
+                .replace("{question_number}",  q.getNumber())
+                .replace("{question_id}",      request.getQuestionId())
+                .replace("{answer_format}",    buildAnswerFormatGuide(q.getQuestionType()));
+    }
 
-        String optionsText = buildOptionsText(q.getOptions());
-        String typeInstruction = buildTypeInstruction(questionType, q.getOptions());
-
+    private String buildDefaultPrompt(SolveRequest request) {
+        SolveRequest.QuestionData q = request.getQuestion();
         return """
-                Bạn là một AI hỗ trợ giải bài tập học thuật cho giáo viên. 
-                Hãy phân tích câu hỏi và trả lời CHÍNH XÁC theo định dạng JSON được yêu cầu.
-                
-                === THÔNG TIN CÂU HỎI ===
-                Loại câu hỏi: %s
-                Số thứ tự: %s
-                Môn học: %s
-                
-                Câu hỏi:
+                Bạn là AI hỗ trợ giáo viên kiểm tra và soạn đề thi.
+                Phân tích câu hỏi và trả lời JSON CHÍNH XÁC.
+
+                === CÂU HỎI ===
+                Loại: %s | Môn: %s | Số: %s
+                Nội dung: %s
                 %s
-                
-                %s
-                
-                === YÊU CẦU TRẢ LỜI ===
-                %s
-                
+
                 === ĐỊNH DẠNG JSON BẮT BUỘC ===
-                Chỉ trả về JSON, KHÔNG có bất kỳ text nào khác, KHÔNG có markdown, KHÔNG có giải thích bên ngoài JSON:
-                
                 {
                   "success": true,
                   "message": "Answer processed",
@@ -161,60 +143,60 @@ public class GeminiAiSolverService implements AiSolverService {
                   "answer": "<ĐÁP ÁN>",
                   "auto_click": true
                 }
-                
-                Trong đó <ĐÁP ÁN> phải là:
-                %s
+                Quy tắc <ĐÁP ÁN>: %s
                 """.formatted(
-                questionType,
-                q.getNumber(),
-                request.getSession().getSubjectCode(),
-                q.getText(),
-                optionsText,
-                typeInstruction,
-                request.getQuestionId(),
-                buildAnswerFormatGuide(questionType)
+                q.getQuestionType(), request.getSession().getSubjectCode(), q.getNumber(),
+                q.getText(), buildOptionsText(q.getOptions()),
+                request.getQuestionId(), buildAnswerFormatGuide(q.getQuestionType())
         );
     }
 
+    // ─── Response Parser ─────────────────────────────────────────────────────
+
+    private SolveResponse parseGeminiResponse(String raw, String questionId) {
+        try {
+            JsonNode root = objectMapper.readTree(raw);
+            // Cấu trúc của Gemini: candidates[0].content.parts[0].text
+            String text = root.path("candidates").get(0)
+                    .path("content").path("parts").get(0)
+                    .path("text").asText();
+
+            JsonNode node = objectMapper.readTree(text);
+            return SolveResponse.builder()
+                    .success(node.path("success").asBoolean(true))
+                    .message(node.path("message").asText("Answer processed"))
+                    .questionId(node.path("question_id").asText(questionId))
+                    .answer(node.path("answer").asText())
+                    .autoClick(node.path("auto_click").asBoolean(true))
+                    .build();
+        } catch (Exception e) {
+            log.error("Parse error for [{}]: {}", questionId, e.getMessage());
+            return errorResponse(questionId, "Failed to parse Gemini response");
+        }
+    }
+
+    // ─── Helper Methods (Giữ nguyên logic format) ───────────────────────────
+
     private String buildOptionsText(List<SolveRequest.OptionData> options) {
         if (options == null || options.isEmpty()) return "";
-        StringBuilder sb = new StringBuilder("Các lựa chọn:\n");
-        for (SolveRequest.OptionData opt : options) {
-            sb.append("  ").append(opt.getLabel()).append(". ").append(opt.getText()).append("\n");
-        }
+        StringBuilder sb = new StringBuilder("\nCác lựa chọn:\n");
+        options.forEach(o -> sb.append("  ").append(o.getLabel()).append(". ").append(o.getText()).append("\n"));
         return sb.toString();
     }
 
-    private String buildTypeInstruction(String questionType, List<SolveRequest.OptionData> options) {
-        return switch (questionType.toUpperCase()) {
-            case "SINGLECHOICE" -> """
-                    Hãy chọn MỘT đáp án đúng nhất trong các lựa chọn trên.
-                    Phân tích từng lựa chọn và xác định đáp án chính xác nhất.
-                    """;
-            case "MULTIPLECHOICE" -> """
-                    Hãy chọn TẤT CẢ đáp án đúng trong các lựa chọn trên.
-                    Có thể có từ 2 đáp án trở lên là đúng.
-                    """;
-            case "TRUEFALSE" -> """
-                    Đây là câu hỏi Đúng/Sai.
-                    A = Đúng (True), B = Sai (False).
-                    Hãy xác định nhận định trong câu hỏi là Đúng hay Sai.
-                    """;
-            case "ESSAY" -> """
-                    Đây là câu hỏi tự luận.
-                    Hãy viết câu trả lời đầy đủ, chính xác và súc tích bằng tiếng Việt.
-                    """;
-            default -> "Hãy phân tích và trả lời câu hỏi một cách chính xác.";
+    private String buildAnswerFormatGuide(String type) {
+        return switch (type.toUpperCase()) {
+            case "SINGLECHOICE"   -> "Một chữ cái: \"A\", \"B\", \"C\" hoặc \"D\"";
+            case "MULTIPLECHOICE" -> "Các chữ cái phân cách bởi dấu phẩy: \"A,C\"";
+            case "TRUEFALSE"      -> "\"A\" nếu Đúng, \"B\" nếu Sai";
+            case "ESSAY"          -> "Nội dung câu trả lời đầy đủ";
+            default               -> "Đáp án phù hợp";
         };
     }
 
-    private String buildAnswerFormatGuide(String questionType) {
-        return switch (questionType.toUpperCase()) {
-            case "SINGLECHOICE" -> "Một chữ cái duy nhất, ví dụ: \"A\" hoặc \"B\" hoặc \"C\" hoặc \"D\"";
-            case "MULTIPLECHOICE" -> "Các chữ cái phân cách bằng dấu phẩy, ví dụ: \"A,C\" hoặc \"A,B,D\"";
-            case "TRUEFALSE" -> "\"A\" nếu Đúng, \"B\" nếu Sai";
-            case "ESSAY" -> "Nội dung câu trả lời đầy đủ bằng tiếng Việt";
-            default -> "Đáp án phù hợp với loại câu hỏi";
-        };
+    private SolveResponse errorResponse(String questionId, String message) {
+        return SolveResponse.builder()
+                .success(false).message(message)
+                .questionId(questionId).autoClick(false).build();
     }
 }

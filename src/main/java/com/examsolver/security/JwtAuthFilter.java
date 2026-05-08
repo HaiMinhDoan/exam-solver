@@ -15,37 +15,27 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.util.List;
 
-@Component
-@RequiredArgsConstructor
+@Component @RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
 
     @Override
-    protected void doFilterInternal(@NonNull HttpServletRequest request,
-                                    @NonNull HttpServletResponse response,
+    protected void doFilterInternal(@NonNull HttpServletRequest req,
+                                    @NonNull HttpServletResponse res,
                                     @NonNull FilterChain chain) throws ServletException, IOException {
-
-        String header = request.getHeader("Authorization");
+        String header = req.getHeader("Authorization");
         if (header == null || !header.startsWith("Bearer ")) {
-            chain.doFilter(request, response);
-            return;
+            chain.doFilter(req, res); return;
         }
-
         String token = header.substring(7);
         if (!jwtService.isTokenValid(token)) {
-            chain.doFilter(request, response);
-            return;
+            chain.doFilter(req, res); return;
         }
-
-        String email = jwtService.extractEmail(token);
-        String role = jwtService.extractRole(token);
-
         var auth = new UsernamePasswordAuthenticationToken(
-                email, null,
-                List.of(new SimpleGrantedAuthority("ROLE_" + role))
-        );
+                jwtService.extractEmail(token), null,
+                List.of(new SimpleGrantedAuthority("ROLE_" + jwtService.extractRole(token))));
         SecurityContextHolder.getContext().setAuthentication(auth);
-        chain.doFilter(request, response);
+        chain.doFilter(req, res);
     }
 }

@@ -5,12 +5,11 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-
 import java.util.List;
 
 /**
- * Payload gửi từ client (Rust app) lên server để giải câu hỏi.
- * Bao gồm thông tin phiên thi, câu hỏi, và API key xác thực.
+ * Payload từ Rust client. KHÔNG còn api_key — xác thực dựa vào email trong session.
+ * Email phải khớp với customer đã được admin cấp quyền và chưa hết hạn.
  */
 @Data
 public class SolveRequest {
@@ -19,29 +18,18 @@ public class SolveRequest {
     @NotBlank(message = "question_id is required")
     private String questionId;
 
-    @Valid
-    @NotNull(message = "session is required")
+    @Valid @NotNull
     private SessionInfo session;
 
-    @Valid
-    @NotNull(message = "question is required")
+    @Valid @NotNull
     private QuestionData question;
 
     @JsonProperty("captured_at")
-    @NotBlank(message = "captured_at is required")
+    @NotBlank
     private String capturedAt;
 
     @JsonProperty("ai_answer")
-    private String aiAnswer; // Luôn null từ client
-
-//    /**
-//     * API key của khách hàng - bắt buộc khi gọi /api/solve
-//     */
-//    @JsonProperty("api_key")
-//    @NotBlank(message = "api_key is required")
-//    private String apiKey;
-
-    // ─── Nested DTOs ─────────────────────────────────────────────────────────
+    private String aiAnswer;
 
     @Data
     public static class SessionInfo {
@@ -49,31 +37,31 @@ public class SolveRequest {
         private String email;
 
         @JsonProperty("exam_code")
-        @NotBlank(message = "exam_code is required")
+        @NotBlank
         private String examCode;
 
         @JsonProperty("subject_code")
-        @NotBlank(message = "subject_code is required")
+        @NotBlank
         private String subjectCode;
 
         @JsonProperty("device_id")
-        @NotBlank(message = "device_id is required")
+        @NotBlank
         private String deviceId;
     }
 
     @Data
     public static class QuestionData {
-        @NotBlank(message = "question number is required")
+        @NotBlank
         private String number;
 
         @JsonProperty("question_type")
-        @NotBlank(message = "question_type is required")
+        @NotBlank
         private String questionType;
 
-        @NotBlank(message = "question text is required")
+        @NotBlank
         private String text;
 
-        @NotNull(message = "options are required")
+        @NotNull
         private List<OptionData> options;
 
         @JsonProperty("screenshot_base64")
@@ -82,10 +70,7 @@ public class SolveRequest {
 
     @Data
     public static class OptionData {
-        @NotBlank
-        private String label;
-
-        @NotBlank
-        private String text;
+        @NotBlank private String label;
+        @NotBlank private String text;
     }
 }
