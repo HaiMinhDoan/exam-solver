@@ -5,7 +5,6 @@ import com.examsolver.dto.response.ApiResponse;
 import com.examsolver.entity.Customer;
 import com.examsolver.exception.ResourceNotFoundException;
 import com.examsolver.repository.CustomerRepository;
-import com.examsolver.service.impl.ApiKeyServiceImpl;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -24,14 +23,6 @@ import java.util.List;
 public class CustomerController {
 
     private final CustomerRepository customerRepository;
-    private final ApiKeyServiceImpl apiKeyService;
-
-    @GetMapping("/api-keys")
-    public ResponseEntity<ApiResponse<List<ApiKeyResponse>>> myApiKeys(Authentication auth) {
-        Customer customer = customerRepository.findByEmail(auth.getName())
-                .orElseThrow(() -> new ResourceNotFoundException("Customer not found"));
-        return ResponseEntity.ok(ApiResponse.ok(apiKeyService.getCustomerKeys(customer.getId())));
-    }
 
     @GetMapping("/profile")
     public ResponseEntity<ApiResponse<Object>> profile(Authentication auth) {
