@@ -37,6 +37,21 @@ public interface QuestionJobRepository extends JpaRepository<QuestionJob, Long> 
             "WHERE j.id = :id")
     void resetToPending(@Param("id") Long id);
 
+    /** Câu hỏi đang chờ giáo viên giải — có thể filter theo examCode. */
+    @Query("SELECT j FROM QuestionJob j WHERE j.resolverType = 'HUMAN' " +
+            "AND j.status = 'WAITING_HUMAN' " +
+            "AND (:examCode IS NULL OR j.examCode = :examCode) " +
+            "AND (:subjectCode IS NULL OR j.subjectCode = :subjectCode) " +
+            "ORDER BY j.createdAt ASC")
+    org.springframework.data.domain.Page<QuestionJob> findWaitingForHuman(
+            @Param("examCode") String examCode,
+            @Param("subjectCode") String subjectCode,
+            org.springframework.data.domain.Pageable pageable);
+
+    @Query("SELECT COUNT(j) FROM QuestionJob j WHERE j.resolverType = 'HUMAN' " +
+            "AND j.status = 'WAITING_HUMAN'")
+    long countWaitingForHuman();
+
     @Query("SELECT COUNT(j) FROM QuestionJob j WHERE j.customerEmail = :email AND j.status = :status")
     long countByEmailAndStatus(@Param("email") String email,
                                @Param("status") QuestionJob.JobStatus status);

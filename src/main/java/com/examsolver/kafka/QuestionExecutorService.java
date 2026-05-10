@@ -79,6 +79,15 @@ public class QuestionExecutorService {
             return;
         }
 
+        // HUMAN resolver — chuyển sang WAITING_HUMAN rồi dừng, giáo viên sẽ tự nhập
+        if (job.getResolverType() == QuestionJob.ResolverType.HUMAN) {
+            job.setStatus(QuestionJob.JobStatus.WAITING_HUMAN);
+            questionJobRepository.save(job);
+            log.info("Job [{}] handed off to human resolver", job.getId());
+            ack.acknowledge();
+            return;
+        }
+
         try {
             markProcessing(job);
             processJob(job);

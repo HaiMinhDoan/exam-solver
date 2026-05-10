@@ -81,6 +81,11 @@ public class QuestionJob {
     @Builder.Default
     private JobStatus status = JobStatus.PENDING;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "resolver_type", nullable = false, length = 20)
+    @Builder.Default
+    private ResolverType resolverType = ResolverType.HUMAN;
+
     /** Đáp án sau khi xử lý xong. */
     @Column(columnDefinition = "TEXT")
     private String answer;
@@ -128,5 +133,9 @@ public class QuestionJob {
         DONE,        // Có đáp án
         FAILED,      // Xử lý lỗi, hết retry
         SKIPPED      // AI off + không có trong bank
+    }
+
+    public enum ResolverType{
+        AI, HUMAN
     }
 }

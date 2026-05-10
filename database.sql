@@ -181,3 +181,8 @@ CREATE TRIGGER trg_question_bank_updated_at
 CREATE TRIGGER trg_question_jobs_updated_at
     BEFORE UPDATE ON question_jobs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+
+
+
+

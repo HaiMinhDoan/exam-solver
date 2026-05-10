@@ -53,6 +53,12 @@ public class IngestService {
         String optionsJson = serializeOptions(request);
 
         // 4. Tạo và lưu QuestionJob
+        // resolverType: nếu customer bật AI mode → AI tự giải
+        //               nếu tắt AI mode          → HUMAN (giáo viên nhập tay trên web)
+        QuestionJob.ResolverType resolverType = customer.isAiModeEnabled()
+                ? QuestionJob.ResolverType.AI
+                : QuestionJob.ResolverType.HUMAN;
+
         QuestionJob job = QuestionJob.builder()
                 .questionId(request.getQuestionId())
                 .questionHash(questionHash)
@@ -68,6 +74,7 @@ public class IngestService {
                 .screenshotBase64(request.getQuestion().getScreenshotBase64())
                 .capturedAt(parseCapturedAt(request.getCapturedAt()))
                 .status(QuestionJob.JobStatus.PENDING)
+                .resolverType(resolverType)
                 .build();
 
         QuestionJob saved = questionJobRepository.save(job);
