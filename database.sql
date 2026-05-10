@@ -1,138 +1,183 @@
 -- ============================================================
--- EXAM SOLVER DATABASE - Full Schema
+-- EXAM SOLVER DATABASE SCHEMA
 -- PostgreSQL
 -- ============================================================
 
--- 1. CUSTOMERS
+-- Extension cần thiết cho full-text search
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+-- ============================================================
+-- 1. customers
 -- ============================================================
 CREATE TABLE customers (
-                           id               BIGSERIAL PRIMARY KEY,
-                           email            VARCHAR(255) NOT NULL UNIQUE,
-                           phone_number     VARCHAR(20) UNIQUE,
-                           full_name        VARCHAR(255),
-                           password_hash    VARCHAR(255) NOT NULL,
-                           role             VARCHAR(20)  NOT NULL DEFAULT 'CUSTOMER'
+                           id                 BIGSERIAL PRIMARY KEY,
+                           email              VARCHAR(255) NOT NULL UNIQUE,
+                           phone_number       VARCHAR(50)  UNIQUE,
+                           full_name          VARCHAR(255),
+                           password_hash      VARCHAR(255) NOT NULL,
+                           role               VARCHAR(20)  NOT NULL DEFAULT 'CUSTOMER'
                                CHECK (role IN ('CUSTOMER', 'ADMIN')),
-                           is_active        BOOLEAN      NOT NULL DEFAULT TRUE,
-                           created_at       TIMESTAMP    NOT NULL DEFAULT NOW(),
-                           updated_at       TIMESTAMP    NOT NULL DEFAULT NOW()
+                           access_expires_at  TIMESTAMP,
+                           ai_mode_enabled    BOOLEAN      NOT NULL DEFAULT FALSE,
+                           is_active          BOOLEAN      NOT NULL DEFAULT TRUE,
+                           created_at         TIMESTAMP    NOT NULL DEFAULT NOW(),
+                           updated_at         TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_customers_email    ON customers (email);
-CREATE INDEX idx_customers_phone    ON customers (phone_number);
-CREATE INDEX idx_customers_role     ON customers (role);
-
-COMMENT ON TABLE  customers              IS 'Khách hàng / giáo viên sử dụng hệ thống';
-COMMENT ON COLUMN customers.role        IS 'CUSTOMER = giáo viên, ADMIN = quản trị viên';
-COMMENT ON COLUMN customers.is_active   IS 'FALSE = tài khoản bị khoá';
-
-
--- 2. API_KEYS
 -- ============================================================
-CREATE TABLE api_keys (
-                          id              BIGSERIAL PRIMARY KEY,
-                          key_value       VARCHAR(128) NOT NULL UNIQUE,
-                          customer_id     BIGINT       NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
-                          expires_at      TIMESTAMP    NOT NULL,
-                          is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
-                          validity_days   INT          NOT NULL DEFAULT 30,
-                          description     TEXT,
-                          usage_count     BIGINT       NOT NULL DEFAULT 0,
-                          created_at      TIMESTAMP    NOT NULL DEFAULT NOW(),
-                          last_used_at    TIMESTAMP
-);
-
-CREATE INDEX idx_api_keys_key_value   ON api_keys (key_value);
-CREATE INDEX idx_api_keys_customer    ON api_keys (customer_id);
-CREATE INDEX idx_api_keys_active      ON api_keys (is_active, expires_at);
-
-COMMENT ON TABLE  api_keys                  IS 'API key cấp cho từng khách hàng, mỗi khách chỉ có 1 key active';
-COMMENT ON COLUMN api_keys.key_value       IS 'Giá trị key dạng esk_<base64>, dài 128 ký tự';
-COMMENT ON COLUMN api_keys.validity_days   IS 'Số ngày hiệu lực do admin cài đặt khi cấp key';
-COMMENT ON COLUMN api_keys.usage_count     IS 'Số lần key được sử dụng để gọi /api/solve';
-COMMENT ON COLUMN api_keys.last_used_at    IS 'Lần cuối key được dùng';
-
-
--- 3. EXAM_SESSIONS
+-- 2. exam_sessions
 -- ============================================================
 CREATE TABLE exam_sessions (
-                               id            BIGSERIAL PRIMARY KEY,
-                               customer_id   BIGINT       NOT NULL REFERENCES customers (id) ON DELETE CASCADE,
-                               exam_code     VARCHAR(100) NOT NULL,
-                               subject_code  VARCHAR(50)  NOT NULL,
-                               device_id     VARCHAR(255),
-                               created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
+                               id           BIGSERIAL PRIMARY KEY,
+                               customer_id  BIGINT       NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+                               exam_code    VARCHAR(100) NOT NULL,
+                               subject_code VARCHAR(50)  NOT NULL,
+                               device_id    VARCHAR(255),
+                               created_at   TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_exam_sessions_customer   ON exam_sessions (customer_id);
-CREATE INDEX idx_exam_sessions_lookup     ON exam_sessions (customer_id, exam_code, subject_code, device_id);
+CREATE INDEX idx_es_customer ON exam_sessions(customer_id);
+CREATE INDEX idx_es_lookup   ON exam_sessions(customer_id, exam_code, subject_code, device_id);
 
-COMMENT ON TABLE  exam_sessions               IS 'Phiên thi — nhóm các câu hỏi trong cùng kỳ thi / môn học';
-COMMENT ON COLUMN exam_sessions.exam_code    IS 'Mã kỳ thi, VD: HADA12123, Exam_FU_DN';
-COMMENT ON COLUMN exam_sessions.subject_code IS 'Mã môn học, VD: MLN131, VNR202, SWD392';
-COMMENT ON COLUMN exam_sessions.device_id    IS 'Machine ID của thiết bị client';
+-- ============================================================
+-- 3. question_bank
+-- ============================================================
+CREATE TABLE question_bank (
+                               id                BIGSERIAL PRIMARY KEY,
+                               question_hash     VARCHAR(64)  NOT NULL UNIQUE,
+                               normalized_text   TEXT         NOT NULL,
+                               original_text     TEXT         NOT NULL,
+                               question_type     VARCHAR(20)  NOT NULL
+                                   CHECK (question_type IN ('SINGLECHOICE', 'MULTIPLECHOICE', 'TRUEFALSE', 'ESSAY')),
+                               options           JSONB,
+                               answer            TEXT         NOT NULL,
+                               subject_code      VARCHAR(50),
+                               hit_count         BIGINT       NOT NULL DEFAULT 0,
+                               is_verified       BOOLEAN      NOT NULL DEFAULT FALSE,
+                               prompt_version_id BIGINT,
+                               created_at        TIMESTAMP    NOT NULL DEFAULT NOW(),
+                               updated_at        TIMESTAMP    NOT NULL DEFAULT NOW()
+);
 
+CREATE INDEX idx_qb_hash    ON question_bank(question_hash);
+CREATE INDEX idx_qb_type    ON question_bank(question_type);
+CREATE INDEX idx_qb_subject ON question_bank(subject_code);
 
--- 4. QUESTION_RECORDS
+-- GIN index cho full-text search (pg_trgm)
+CREATE INDEX idx_qb_normalized_trgm ON question_bank USING GIN (normalized_text gin_trgm_ops);
+
+-- ============================================================
+-- 4. prompt_versions
+-- ============================================================
+CREATE TABLE prompt_versions (
+                                 id               BIGSERIAL PRIMARY KEY,
+                                 prompt_type      VARCHAR(30)  NOT NULL,
+                                 version_number   INT          NOT NULL,
+                                 version_label    VARCHAR(100),
+                                 prompt_template  TEXT         NOT NULL,
+                                 is_active        BOOLEAN      NOT NULL DEFAULT FALSE,
+                                 created_by       VARCHAR(255),
+                                 notes            TEXT,
+                                 created_at       TIMESTAMP    NOT NULL DEFAULT NOW(),
+                                 activated_at     TIMESTAMP
+);
+
+CREATE INDEX idx_pv_active  ON prompt_versions(prompt_type, is_active);
+CREATE INDEX idx_pv_version ON prompt_versions(version_number);
+
+-- Đảm bảo chỉ 1 version active trên mỗi prompt_type
+CREATE UNIQUE INDEX idx_pv_unique_active
+    ON prompt_versions(prompt_type)
+    WHERE is_active = TRUE;
+
+-- ============================================================
+-- 5. question_records
 -- ============================================================
 CREATE TABLE question_records (
-                                  id                  BIGSERIAL    PRIMARY KEY,
-                                  exam_session_id     BIGINT       NULL REFERENCES exam_sessions (id) ON DELETE SET NULL ,
-                                  question_id         VARCHAR(256) NOT NULL,
-                                  question_number     VARCHAR(20),
-                                  question_type       VARCHAR(20)  NOT NULL
-                                      CHECK (question_type IN ('SINGLECHOICE','MULTIPLECHOICE','TRUEFALSE','ESSAY')),
-                                  question_text       TEXT         NOT NULL,
-                                  options             JSONB,                        -- [{"label":"A","text":"..."},...]
-                                  answer              VARCHAR(512),
-                                  auto_click          BOOLEAN      NOT NULL DEFAULT TRUE,
-                                  ai_model_used       VARCHAR(100),
-                                  processing_time_ms  BIGINT,
-                                  captured_at         TIMESTAMP,
-                                  has_screenshot      BOOLEAN      NOT NULL DEFAULT FALSE,
-                                  success             BOOLEAN      NOT NULL DEFAULT FALSE,
-                                  error_message       TEXT,
-                                  created_at          TIMESTAMP    NOT NULL DEFAULT NOW()
+                                  id                BIGSERIAL PRIMARY KEY,
+                                  exam_session_id   BIGINT       NOT NULL REFERENCES exam_sessions(id) ON DELETE CASCADE,
+                                  question_bank_id  BIGINT       REFERENCES question_bank(id) ON DELETE SET NULL,
+                                  question_hash     VARCHAR(64),
+                                  question_number   VARCHAR(20),
+                                  question_type     VARCHAR(20)  NOT NULL
+                                      CHECK (question_type IN ('SINGLECHOICE', 'MULTIPLECHOICE', 'TRUEFALSE', 'ESSAY')),
+                                  question_text     TEXT         NOT NULL,
+                                  options           JSONB,
+                                  answer            VARCHAR(512),
+                                  auto_click        BOOLEAN      NOT NULL DEFAULT TRUE,
+                                  answer_source     VARCHAR(10)
+                                      CHECK (answer_source IN ('BANK', 'AI', 'NONE')),
+                                  ai_model_used     VARCHAR(100),
+                                  prompt_version_id BIGINT,
+                                  processing_time_ms BIGINT,
+                                  captured_at       TIMESTAMP,
+                                  has_screenshot    BOOLEAN      NOT NULL DEFAULT FALSE,
+                                  success           BOOLEAN      NOT NULL DEFAULT FALSE,
+                                  error_message     TEXT,
+                                  created_at        TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_qr_question_id      ON question_records (question_id);
-CREATE INDEX idx_qr_session          ON question_records (exam_session_id);
-CREATE INDEX idx_qr_success_cache    ON question_records (question_id, success);
-CREATE INDEX idx_qr_type             ON question_records (question_type);
-CREATE INDEX idx_qr_options_gin      ON question_records USING GIN (options);  -- tìm kiếm nhanh trong JSONB
-
-COMMENT ON TABLE  question_records                    IS 'Lưu toàn bộ câu hỏi và đáp án AI trả về';
-COMMENT ON COLUMN question_records.question_id       IS 'Hash ID duy nhất của câu hỏi, dùng để cache';
-COMMENT ON COLUMN question_records.options           IS 'JSONB: [{"label":"A","text":"Đáp án A"},...]';
-COMMENT ON COLUMN question_records.answer            IS 'SINGLECHOICE: "A" | MULTIPLECHOICE: "A,C" | ESSAY: text dài';
-COMMENT ON COLUMN question_records.has_screenshot    IS 'TRUE nếu client gửi kèm ảnh screenshot câu hỏi';
-COMMENT ON COLUMN question_records.success           IS 'FALSE nếu AI gặp lỗi khi giải';
-COMMENT ON COLUMN question_records.processing_time_ms IS 'Thời gian xử lý toàn bộ request (ms)';
-
+CREATE INDEX idx_qr_session  ON question_records(exam_session_id);
+CREATE INDEX idx_qr_hash     ON question_records(question_hash);
+CREATE INDEX idx_qr_bank_ref ON question_records(question_bank_id);
 
 -- ============================================================
--- AUTO-UPDATE updated_at cho bảng customers
+-- 6. question_jobs
 -- ============================================================
-CREATE OR REPLACE FUNCTION trg_set_updated_at()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+CREATE TABLE question_jobs (
+                               id                      BIGSERIAL PRIMARY KEY,
+                               question_id             VARCHAR(256) NOT NULL,
+                               question_hash           VARCHAR(64),
+                               customer_email          VARCHAR(255) NOT NULL,
+                               exam_code               VARCHAR(100) NOT NULL,
+                               subject_code            VARCHAR(50)  NOT NULL,
+                               device_id               VARCHAR(255),
+                               question_number         VARCHAR(20),
+                               question_type           VARCHAR(20)  NOT NULL
+                                   CHECK (question_type IN ('SINGLECHOICE', 'MULTIPLECHOICE', 'TRUEFALSE', 'ESSAY')),
+                               question_text           TEXT         NOT NULL,
+                               options                 JSONB,
+                               screenshot_base64       TEXT,
+                               captured_at             TIMESTAMP,
+                               status                  VARCHAR(20)  NOT NULL DEFAULT 'PENDING'
+                                   CHECK (status IN ('PENDING', 'PROCESSING', 'DONE', 'FAILED', 'SKIPPED')),
+                               answer                  TEXT,
+                               answer_source           VARCHAR(10)
+                                   CHECK (answer_source IN ('BANK', 'AI', 'NONE')),
+                               error_message           TEXT,
+                               retry_count             INT          NOT NULL DEFAULT 0,
+                               max_retries             INT          NOT NULL DEFAULT 3,
+                               processing_started_at   TIMESTAMP,
+                               processing_finished_at  TIMESTAMP,
+                               processing_time_ms      BIGINT,
+                               created_at              TIMESTAMP    NOT NULL DEFAULT NOW(),
+                               updated_at              TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_qj_status      ON question_jobs(status);
+CREATE INDEX idx_qj_customer    ON question_jobs(customer_email);
+CREATE INDEX idx_qj_question_id ON question_jobs(question_id);
+CREATE INDEX idx_qj_created     ON question_jobs(created_at);
+
+-- ============================================================
+-- Auto-update updated_at trigger
+-- ============================================================
+CREATE OR REPLACE FUNCTION update_updated_at()
+    RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
-RETURN NEW;
+    RETURN NEW;
 END;
-$$;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_customers_updated_at
     BEFORE UPDATE ON customers
-    FOR EACH ROW EXECUTE FUNCTION trg_set_updated_at();
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+CREATE TRIGGER trg_question_bank_updated_at
+    BEFORE UPDATE ON question_bank
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
--- ============================================================
--- SAMPLE DATA (tuỳ chọn, dùng để test)
--- ============================================================
-
--- Admin mặc định (password: Admin@12345 — BCrypt hash)
-INSERT INTO customers (email, full_name, password_hash, role)
-VALUES ('admin@examsolver.vn', 'System Admin',
-        '$2a$10$7QJ8z1Z2k3L4m5N6o7P8q.Rexamplehashfordemopurposesonly1',
-        'ADMIN')
-    ON CONFLICT (email) DO NOTHING;
+CREATE TRIGGER trg_question_jobs_updated_at
+    BEFORE UPDATE ON question_jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
