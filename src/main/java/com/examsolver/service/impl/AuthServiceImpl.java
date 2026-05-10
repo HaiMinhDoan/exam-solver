@@ -36,7 +36,7 @@ public class AuthServiceImpl {
                 .phoneNumber(req.getPhoneNumber())
                 .fullName(req.getFullName())
                 .passwordHash(passwordEncoder.encode(req.getPassword()))
-                .role(Customer.Role.CUSTOMER)
+                .role(req.getRole() == null ? Customer.Role.CUSTOMER : req.getRole())
                 .active(true)
                 .build();
 

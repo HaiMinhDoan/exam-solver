@@ -1,10 +1,9 @@
 package com.examsolver.dto.request;
 
+import com.examsolver.entity.Customer;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
+import jakarta.annotation.Nullable;
+import jakarta.validation.constraints.*;
 import lombok.Data;
 
 public class AuthRequest {
@@ -24,6 +23,8 @@ public class AuthRequest {
         @NotBlank(message = "Password is required")
         @Size(min = 8, message = "Password must be at least 8 characters")
         private String password;
+
+        private Customer.Role role = Customer.Role.CUSTOMER;;
     }
 
     @Data
