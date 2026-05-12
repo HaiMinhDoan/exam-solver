@@ -1,12 +1,14 @@
 package com.examsolver.service.impl;
 
 import com.examsolver.dto.request.HumanAnswerRequest;
+import com.examsolver.dto.request.SolveRequest;
+import com.examsolver.dto.response.ExamSessionResponse;
 import com.examsolver.dto.response.JobStatusResponse;
-import com.examsolver.entity.QuestionBank;
 import com.examsolver.entity.QuestionJob;
 import com.examsolver.entity.QuestionRecord;
 import com.examsolver.exception.BusinessException;
 import com.examsolver.exception.ResourceNotFoundException;
+import com.examsolver.repository.ExamSessionRepository;
 import com.examsolver.repository.QuestionJobRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,7 +19,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.examsolver.dto.request.SolveRequest;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -27,56 +28,76 @@ import java.util.List;
 public class HumanSolveService {
 
     private final QuestionJobRepository questionJobRepository;
+    private final ExamSessionRepository examSessionRepository;
     private final QuestionBankService questionBankService;
     private final ObjectMapper objectMapper;
 
     /**
-     * Giáo viên xem danh sách câu hỏi đang chờ mình giải.
-     * Có thể filter theo examCode và subjectCode.
+     * Lấy danh sách bài thi (exam sessions) có câu hỏi chờ giáo viên giải (HUMAN resolver).
      */
-    public Page<JobStatusResponse> getPendingJobs(
-            String examCode, String subjectCode, Pageable pageable) {
-        return questionJobRepository
-                .findWaitingForHuman(examCode, subjectCode, pageable)
-                .map(this::toResponse);
+    public Page<ExamSessionResponse> getHumanSessions(Long customerId, Pageable pageable) {
+//        return examSessionRepository.findHumanSessions(customerId, pageable)
+        return examSessionRepository.findAllOfHumanSessions(customerId, pageable)
+                .map(session -> {
+                    long count = questionJobRepository.countSessionJobs(
+                            session.getExamCode(),
+                            session.getSubjectCode(),
+                            session.getDeviceId()
+                    );
+                    return ExamSessionResponse.builder()
+                            .id(session.getId())
+                            .examCode(session.getExamCode())
+                            .subjectCode(session.getSubjectCode())
+                            .deviceId(session.getDeviceId())
+                            .pendingCount((int) count)
+                            .createdAt(session.getCreatedAt())
+                            .build();
+                });
     }
 
     /**
-     * Giáo viên "nhận" một câu hỏi — gán assignedTo để tránh 2 người giải cùng lúc.
-     * Trả về chi tiết câu hỏi để giáo viên đọc và nhập đáp án.
+     * Lấy danh sách câu hỏi chờ giáo viên giải trong một exam session cụ thể.
      */
-    @Transactional
-    public JobStatusResponse claimJob(Long jobId, String teacherEmail) {
-        QuestionJob job = getWaitingJob(jobId);
+    @Transactional(readOnly = true)
+    public Page<JobStatusResponse> getSessionJobs(
+            Long customerId, Long sessionId, Pageable pageable) {
 
-        // Nếu đã có người nhận, chỉ người đó mới được tiếp tục
-        if (job.getAssignedTo() != null && !job.getAssignedTo().equals(teacherEmail)) {
-            throw new BusinessException("Câu hỏi này đang được giải bởi " + job.getAssignedTo());
+        var session = examSessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Session không tồn tại: " + sessionId));
+
+        if (!session.getCustomer().getId().equals(customerId)) {
+            throw new BusinessException("Bạn không có quyền xem session này");
         }
 
-        job.setAssignedTo(teacherEmail);
-        questionJobRepository.save(job);
-        log.info("Job [{}] claimed by [{}]", jobId, teacherEmail);
-        return toResponse(job);
+        return questionJobRepository.findSessionJobs(
+                session.getCustomer().getEmail(),
+                session.getExamCode(),
+                session.getSubjectCode(),
+                session.getDeviceId(),
+                pageable
+        ).map(this::toResponseUnchecked); // dùng wrapper không throws
     }
 
     /**
-     * Giáo viên submit đáp án thủ công.
-     * Lưu vào QuestionBank để các lần sau tìm thấy, cập nhật job DONE.
+     * Lấy chi tiết một câu hỏi đang chờ giải.
+     */
+    public JobStatusResponse getJob(Long jobId) {
+        QuestionJob job = getWaitingJob(jobId);
+        log.info("Retrieved job [{}]", jobId);
+        return toResponseUnchecked(job);
+    }
+
+    /**
+     * Nhận đáp án từ con người cho một câu hỏi.
      */
     @Transactional
     public JobStatusResponse submitAnswer(Long jobId, String teacherEmail,
                                           HumanAnswerRequest req) {
         QuestionJob job = getWaitingJob(jobId);
 
-        // Chỉ người đã nhận mới được submit (hoặc chưa có ai nhận thì ai cũng được)
-        if (job.getAssignedTo() != null && !job.getAssignedTo().equals(teacherEmail)) {
-            throw new BusinessException("Bạn không có quyền submit đáp án cho câu hỏi này.");
-        }
-
         long start = System.currentTimeMillis();
 
-        // Lưu vào question_bank (để tra cứu sau — kể cả cho AI mode)
+        // Lưu vào question_bank
         try {
             List<SolveRequest.OptionData> options = objectMapper.readValue(
                     job.getOptionsJson(), new TypeReference<>() {});
@@ -92,27 +113,12 @@ public class HumanSolveService {
         job.setStatus(QuestionJob.JobStatus.DONE);
         job.setAnswer(req.getAnswer());
         job.setAnswerSource(QuestionRecord.AnswerSource.HUMAN);
-        job.setAssignedTo(teacherEmail);
         job.setProcessingFinishedAt(LocalDateTime.now());
         job.setProcessingTimeMs(elapsed);
         questionJobRepository.save(job);
 
         log.info("Job [{}] answered by human [{}] → [{}]", jobId, teacherEmail, req.getAnswer());
-        return toResponse(job);
-    }
-
-    /**
-     * Giáo viên "trả lại" câu hỏi — bỏ assignedTo, cho người khác nhận.
-     */
-    @Transactional
-    public void releaseJob(Long jobId, String teacherEmail) {
-        QuestionJob job = getWaitingJob(jobId);
-        if (!teacherEmail.equals(job.getAssignedTo())) {
-            throw new BusinessException("Bạn không sở hữu câu hỏi này.");
-        }
-        job.setAssignedTo(null);
-        questionJobRepository.save(job);
-        log.info("Job [{}] released by [{}]", jobId, teacherEmail);
+        return toResponseUnchecked(job);
     }
 
     // ─── Private ─────────────────────────────────────────────────────────────
@@ -120,11 +126,49 @@ public class HumanSolveService {
     private QuestionJob getWaitingJob(Long jobId) {
         QuestionJob job = questionJobRepository.findById(jobId)
                 .orElseThrow(() -> new ResourceNotFoundException("Job không tồn tại: " + jobId));
-        if (job.getStatus() != QuestionJob.JobStatus.WAITING_HUMAN) {
-            throw new BusinessException(
-                    "Job [" + jobId + "] không ở trạng thái chờ giải (status: " + job.getStatus() + ")");
-        }
+//        if (job.getStatus() != QuestionJob.JobStatus.WAITING_HUMAN) {
+//            throw new BusinessException(
+//                    "Job [" + jobId + "] không ở trạng thái chờ giải (status: " + job.getStatus() + ")");
+//        }
         return job;
+    }
+
+    /**
+     * Wrapper không throws — dùng được trong .map() của Stream/Page.
+     * JsonProcessingException được wrap thành RuntimeException để không làm vỡ functional interface.
+     */
+    private JobStatusResponse toResponseUnchecked(QuestionJob job) {
+        try {
+            return toResponse(job);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to parse options JSON for job [" + job.getId() + "]", e);
+        }
+    }
+
+    private JobStatusResponse toResponse(QuestionJob job) throws Exception {
+        List<SolveRequest.OptionData> options = null;
+
+        // options có thể null với câu tự luận (ESSAY)
+        if (job.getOptionsJson() != null) {
+            options = objectMapper.readValue(job.getOptionsJson(), new TypeReference<>() {});
+        }
+
+        return JobStatusResponse.builder()
+                .jobId(job.getId())
+                .questionId(job.getQuestionId())
+                .questionNumber(job.getQuestionNumber())
+                .questionType(job.getQuestionType())
+                .questionText(job.getQuestionText())
+                .status(job.getStatus())
+                .answer(job.getAnswer())
+                .answerSource(job.getAnswerSource() != null ? job.getAnswerSource().name() : null)
+                .autoClick(job.getStatus() == QuestionJob.JobStatus.DONE)
+                .errorMessage(job.getErrorMessage())
+                .options(options)
+                .processingTimeMs(job.getProcessingTimeMs())
+                .createdAt(job.getCreatedAt())
+                .updatedAt(job.getUpdatedAt())
+                .build();
     }
 
     private SolveRequest buildFakeRequest(QuestionJob job,
@@ -147,20 +191,5 @@ public class HumanSolveService {
         req.setQuestion(qd);
         req.setCapturedAt(LocalDateTime.now().toString());
         return req;
-    }
-
-    private JobStatusResponse toResponse(QuestionJob job) {
-        return JobStatusResponse.builder()
-                .jobId(job.getId())
-                .questionId(job.getQuestionId())
-                .status(job.getStatus().name())
-                .answer(job.getAnswer())
-                .answerSource(job.getAnswerSource() != null ? job.getAnswerSource().name() : null)
-                .autoClick(job.getStatus() == QuestionJob.JobStatus.DONE)
-                .errorMessage(job.getErrorMessage())
-                .processingTimeMs(job.getProcessingTimeMs())
-                .createdAt(job.getCreatedAt())
-                .updatedAt(job.getUpdatedAt())
-                .build();
     }
 }

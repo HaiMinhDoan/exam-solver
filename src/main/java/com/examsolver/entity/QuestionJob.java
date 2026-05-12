@@ -128,6 +128,7 @@ public class QuestionJob {
     }
 
     public enum JobStatus {
+        WAITING_HUMAN,
         PENDING,     // Đã nhận, chờ executor
         PROCESSING,  // Executor đang xử lý
         DONE,        // Có đáp án

@@ -12,5 +12,6 @@ public class ExamSessionResponse {
     @JsonProperty("exam_code")    private String examCode;
     @JsonProperty("subject_code") private String subjectCode;
     @JsonProperty("device_id")    private String deviceId;
+    @JsonProperty("pending_count") private Integer pendingCount;
     @JsonProperty("created_at")   private LocalDateTime createdAt;
 }

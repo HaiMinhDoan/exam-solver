@@ -92,5 +92,5 @@ public class QuestionRecord {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
-    public enum AnswerSource { BANK, AI, NONE }
+    public enum AnswerSource { BANK, AI, NONE , HUMAN }
 }

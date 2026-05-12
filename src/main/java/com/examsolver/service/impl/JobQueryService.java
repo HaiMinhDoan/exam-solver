@@ -44,7 +44,7 @@ public class JobQueryService {
         return JobStatusResponse.builder()
                 .jobId(job.getId())
                 .questionId(job.getQuestionId())
-                .status(job.getStatus().name())
+                .status(job.getStatus())
                 .answer(job.getAnswer())
                 .answerSource(job.getAnswerSource() != null ? job.getAnswerSource().name() : null)
                 .autoClick(job.getStatus() == QuestionJob.JobStatus.DONE)

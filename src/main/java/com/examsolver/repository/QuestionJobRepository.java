@@ -37,13 +37,15 @@ public interface QuestionJobRepository extends JpaRepository<QuestionJob, Long> 
             "WHERE j.id = :id")
     void resetToPending(@Param("id") Long id);
 
-    /** Câu hỏi đang chờ giáo viên giải — có thể filter theo examCode. */
+    /** Câu hỏi đang chờ chính customer đó giải. */
     @Query("SELECT j FROM QuestionJob j WHERE j.resolverType = 'HUMAN' " +
             "AND j.status = 'WAITING_HUMAN' " +
+            "AND j.customerEmail = :customerEmail " +
             "AND (:examCode IS NULL OR j.examCode = :examCode) " +
             "AND (:subjectCode IS NULL OR j.subjectCode = :subjectCode) " +
             "ORDER BY j.createdAt ASC")
     org.springframework.data.domain.Page<QuestionJob> findWaitingForHuman(
+            @Param("customerEmail") String customerEmail,
             @Param("examCode") String examCode,
             @Param("subjectCode") String subjectCode,
             org.springframework.data.domain.Pageable pageable);
@@ -55,4 +57,48 @@ public interface QuestionJobRepository extends JpaRepository<QuestionJob, Long> 
     @Query("SELECT COUNT(j) FROM QuestionJob j WHERE j.customerEmail = :email AND j.status = :status")
     long countByEmailAndStatus(@Param("email") String email,
                                @Param("status") QuestionJob.JobStatus status);
+
+    /**
+     * Lấy danh sách câu hỏi chờ giáo viên giải của một bài thi (exam session) cụ thể.
+     */
+    @Query("SELECT j FROM QuestionJob j WHERE j.resolverType = 'HUMAN' " +
+            "AND (j.status = 'WAITING_HUMAN' " +
+            "OR j.status = 'DONE') " +
+            "AND j.examCode = :examCode " +
+            "AND j.subjectCode = :subjectCode " +
+            "AND (j.deviceId = :deviceId OR (j.deviceId IS NULL AND :deviceId IS NULL)) " +
+            "AND j.customerEmail = :customerEmail " +
+            "ORDER BY j.createdAt ASC")
+    Page<QuestionJob> findSessionJobs(
+            @Param("customerEmail") String customerEmail,
+            @Param("examCode") String examCode,
+            @Param("subjectCode") String subjectCode,
+            @Param("deviceId") String deviceId,
+            Pageable pageable);
+
+    /**
+     * Đếm số câu hỏi chờ giải trong một exam session.
+     */
+    @Query("SELECT COUNT(j) FROM QuestionJob j WHERE j.resolverType = 'HUMAN' " +
+            "AND j.status = 'WAITING_HUMAN' " +
+            "AND j.examCode = :examCode " +
+            "AND j.subjectCode = :subjectCode " +
+            "AND (j.deviceId = :deviceId OR (j.deviceId IS NULL AND :deviceId IS NULL))")
+    long countSessionPendingJobs(
+            @Param("examCode") String examCode,
+            @Param("subjectCode") String subjectCode,
+            @Param("deviceId") String deviceId);
+
+
+    /**
+     * Đếm số câu hỏi trong một exam session.
+     */
+    @Query("SELECT COUNT(j) FROM QuestionJob j WHERE j.resolverType = 'HUMAN' " +
+            "AND j.examCode = :examCode " +
+            "AND j.subjectCode = :subjectCode " +
+            "AND (j.deviceId = :deviceId OR (j.deviceId IS NULL AND :deviceId IS NULL))")
+    long countSessionJobs(
+            @Param("examCode") String examCode,
+            @Param("subjectCode") String subjectCode,
+            @Param("deviceId") String deviceId);
 }
