@@ -1,5 +1,6 @@
 package com.examsolver.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -38,6 +39,7 @@ public class QuestionBank {
      * Dùng để lookup nhanh O(1).
      */
     @Column(name = "question_hash", nullable = false, unique = true, length = 64)
+    @JsonProperty("question_hash")
     private String questionHash;
 
     /**
@@ -45,23 +47,28 @@ public class QuestionBank {
      * Dùng để full-text search (pg_trgm hoặc to_tsvector).
      */
     @Column(name = "normalized_text", nullable = false, columnDefinition = "TEXT")
+    @JsonProperty("normalized_text")
     private String normalizedText;
 
     /** Text gốc để hiển thị. */
     @Column(name = "original_text", nullable = false, columnDefinition = "TEXT")
+    @JsonProperty("original_text")
     private String originalText;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "question_type", nullable = false, length = 20)
+    @JsonProperty("question_type")
     private QuestionType questionType;
 
     /** JSONB: [{"label":"A","text":"..."},...] */
     @Column(name = "options", columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
+    @JsonProperty("options")
     private String optionsJson;
 
     /** Đáp án đúng: "A", "A,C", text tự luận... */
     @Column(nullable = false, columnDefinition = "TEXT")
+    @JsonProperty("answer")
     private String answer;
 
     /**
@@ -69,28 +76,34 @@ public class QuestionBank {
      * Không dùng để lookup — câu hỏi giống nhau ở nhiều môn vẫn dùng chung entry.
      */
     @Column(name = "subject_code", length = 50)
+    @JsonProperty("subject_code")
     private String subjectCode;
 
     /** Số lần câu hỏi này được sử dụng (tra cứu thành công). */
     @Column(name = "hit_count", nullable = false)
+    @JsonProperty("hit_count")
     @Builder.Default
     private long hitCount = 0;
 
     /** Đáp án được xác nhận đúng (admin verify hoặc nhiều lần đồng nhất). */
     @Column(name = "is_verified", nullable = false)
+    @JsonProperty("is_verified")
     @Builder.Default
     private boolean verified = false;
 
     /** Prompt version đã dùng để giải lần đầu. */
     @Column(name = "prompt_version_id")
+    @JsonProperty("prompt_version_id")
     private Long promptVersionId;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
+    @JsonProperty("created_at")
     private LocalDateTime createdAt;
 
     @UpdateTimestamp
     @Column(name = "updated_at")
+    @JsonProperty("updated_at")
     private LocalDateTime updatedAt;
 
     public enum QuestionType {
