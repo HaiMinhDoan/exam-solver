@@ -1,5 +1,5 @@
 services:
-  backend:
+  exam_solver_backend:
     build:
       context: .
       dockerfile: Dockerfile
